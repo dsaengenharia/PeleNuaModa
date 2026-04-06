@@ -898,6 +898,7 @@ footer a{color:var(--pkl);text-decoration:none;cursor:pointer;}
 
 
 
+
 const SUPA_URL='https://brckyuxjufcchribzefe.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyY2t5dXhqdWZjY2hyaWJ6ZWZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1OTUyNTQsImV4cCI6MjA5MDE3MTI1NH0.-Mt-GL3mjuVn9lifuGYI2oPEjq2fE6Gh7FLZEb-lr9g';
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
@@ -1411,6 +1412,10 @@ async function saveEdit(){
   const p=src.find(x=>x.id===id);if(!p)return;
   Object.assign(p,{name,cat,cats:editedCats,price,sizes,esg,desc,images:editProdImgs.slice(),imgData:editProdImgs.length?editProdImgs[0]:p.imgData});
   await upsertProd(pool==='adult'?'pnm_adult':'pnm_prods',p);
+  // Reload from DB and refresh table
+  if(pool==='adult'){aProds=await getProd('pnm_adult');}
+  else{prods=await getProd('pnm_prods');}
+  renderProdTbl();renderHGrid();renderP();updStats();
   closeM('mo-edit');showToast('✅ Produto atualizado!');
 }
 function renderEpGallery(){
@@ -1448,25 +1453,79 @@ async function addProd(){
   const price=parseFloat(document.getElementById('pi-price').value);
   const desc=document.getElementById('pi-desc').value.trim();
   const age=document.getElementById('pi-age').value;
-  const fem=document.getElementById('pi-fem').checked,masc=document.getElementById('pi-masc').checked;
-  const dest=document.getElementById('pi-dest').checked,sizes=getSZ();
+  const fem=document.getElementById('pi-fem').checked;
+  const masc=document.getElementById('pi-masc').checked;
+  const dest=document.getElementById('pi-dest').checked;
+  const sizes=getSZ();
   const isAdult=document.getElementById('pi-adult').checked;
-  if(!name||!cats.length||!price||!sizes.length){showToast('Preencha nome, categorias, preço e tamanhos!');return;}
-  if(!fem&&!masc){showToast('Selecione o público!');return;}
+  // Validação
+  if(!name){showToast('⚠️ Preencha o nome do produto!');document.getElementById('pi-name').focus();return;}
+  if(!cats.length){showToast('⚠️ Selecione ao menos uma categoria!');return;}
+  if(!price||isNaN(price)||price<=0){showToast('⚠️ Informe o preço!');document.getElementById('pi-price').focus();return;}
+  if(!sizes.length){showToast('⚠️ Selecione ao menos um tamanho!');return;}
+  if(!fem&&!masc){showToast('⚠️ Selecione o público!');return;}
   const target=[];if(fem)target.push('Feminino');if(masc)target.push('Masculino');
   const emo={lingerie:'🌸',body:'💋','baby-doll':'🎀',camisola:'🌺',fantasia:'💉',masculino:'🩳'};
   const subCatSelected=getCheckedCats('pi-subcats-wrap');
-  const np={id:Date.now(),name,cat:cats[0],cats,subCat:subCatSelected,price,desc,age,target,sizes,esg:[],emoji:emo[cats[0]]||'👙',imgData:newProdImgs.length?newProdImgs[0]:null,images:[...newProdImgs],featured:dest};
+  const np={
+    id:Date.now(),name,cat:cats[0],cats,subCat:subCatSelected,
+    price:Number(price),desc,age,target,sizes,esg:[],
+    emoji:emo[cats[0]]||'👙',
+    imgData:newProdImgs.length?newProdImgs[0]:null,
+    images:[...newProdImgs],
+    featured:dest
+  };
   const tbl=isAdult?'pnm_adult':'pnm_prods';
-  await upsertProd(tbl,np);
-  showToast('✅ "'+name+'" publicado!');
-  ['pi-name','pi-price','pi-desc'].forEach(x=>document.getElementById(x).value='');
-  document.getElementById('pi-dest').checked=false;document.getElementById('pi-adult').checked=false;
-  document.getElementById('pi-fem').checked=true;document.getElementById('pi-masc').checked=false;
-  document.getElementById('pi-age').value='18-25';
-  ['sz-p','sz-gg','sz-48','sz-50','sz-52','sz-54'].forEach(x=>{const e=document.getElementById(x);if(e)e.checked=false;});
-  document.getElementById('sz-m').checked=true;document.getElementById('sz-g').checked=true;
-  newProdImgs=[];renderPiGallery();populateCatSelects();
+  try{
+    await upsertProd(tbl,np);
+    // Reload products from DB
+    if(isAdult){
+      aProds=await getProd('pnm_adult');
+    } else {
+      prods=await getProd('pnm_prods');
+    }
+    // Refresh all UI
+    renderProdTbl();
+    renderHGrid();
+    renderP();
+    updStats();
+    // Reset form completely
+    ['pi-name','pi-price','pi-desc'].forEach(function(x){
+      var el=document.getElementById(x);if(el)el.value='';
+    });
+    document.getElementById('pi-dest').checked=false;
+    document.getElementById('pi-adult').checked=false;
+    document.getElementById('pi-fem').checked=true;
+    document.getElementById('pi-masc').checked=false;
+    document.getElementById('pi-age').value='18-25';
+    // Reset tamanhos
+    ['sz-p','sz-m','sz-g','sz-gg','sz-48','sz-50','sz-52','sz-54'].forEach(function(x){
+      var el=document.getElementById(x);if(el)el.checked=false;
+    });
+    document.getElementById('sz-m').checked=true;
+    document.getElementById('sz-g').checked=true;
+    // Reset fotos
+    newProdImgs=[];renderPiGallery();
+    // Reset categorias — uncheck all labels
+    var piWrap=document.getElementById('pi-cats-wrap');
+    if(piWrap){
+      piWrap.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+        cb.checked=false;
+        var lbl=cb.parentElement;
+        if(lbl){lbl.style.background='transparent';lbl.style.color='var(--gr)';}
+      });
+    }
+    var subWrap=document.getElementById('pi-subcats-wrap');
+    if(subWrap){subWrap.innerHTML='';subWrap.style.display='none';}
+    // Toast success
+    showToast('✅ "'+name+'" publicado com sucesso!');
+    // Scroll to product table
+    var tblEl=document.getElementById('prod-tbl');
+    if(tblEl)tblEl.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){
+    showToast('❌ Erro ao salvar: '+e.message);
+    console.error('addProd error:',e);
+  }
 }
 async function delProd(id){showConfirm('Remover Produto','Tem certeza?',async()=>{await deleteProd('pnm_prods',id);showToast('🗑️ Produto removido.');});}
 async function toggleFeat(id){const p=prods.find(x=>x.id===id);if(!p)return;p.featured=!p.featured;await upsertProd('pnm_prods',p);showToast(p.featured?'⭐ Em destaque!':'Removido do destaque.');}
@@ -1478,7 +1537,17 @@ function prodRow(p,pool){
   var delFn=pool==='adult'?'delAdultProd':'delProd';
     var editBtn='<button class="bedit" data-pid="'+p.id+'" data-pool="'+pool+'" onclick="openEditFromAttr(this)">✏️</button>';
   var delBtn='<button class="adel" data-pid="'+p.id+'" data-delfn="'+delFn+'" onclick="delFromAttr(this)">🗑️</button>';
-  return '<tr><td>'+th+'</td><td><strong>'+p.name+'</strong>'+badge+'</td><td>'+p.cat+'</td><td>'+(p.featured&&pool!=='adult'?'⭐':'—')+'</td><td>'+szH+'</td><td><strong style="color:var(--pk)">R$ '+Number(p.price).toFixed(2).replace('.',',')+'</strong></td><td style="display:flex;gap:5px">'+editBtn+delBtn+featBtn+'</td></tr>';
+  var nameDisplay=p.name||'—';
+  var catDisplay=p.cats&&p.cats.length?p.cats.join(', '):p.cat||'—';
+  return '<tr>'
+    +'<td>'+th+'</td>'
+    +'<td><strong>'+nameDisplay+'</strong>'+badge+'<div style="font-size:11px;color:var(--gr)">'+(p.desc?p.desc.slice(0,30)+'…':'')+'</div></td>'
+    +'<td style="font-size:12px">'+catDisplay+'</td>'
+    +'<td>'+(p.featured&&pool!=='adult'?'⭐':'—')+'</td>'
+    +'<td>'+szH+'</td>'
+    +'<td><strong style="color:var(--pk)">R$ '+Number(p.price||0).toFixed(2).replace('.',',')+'</strong></td>'
+    +'<td style="display:flex;gap:5px">'+editBtn+delBtn+featBtn+'</td>'
+    +'</tr>';
 }
 function renderProdTbl(){
   var el=document.getElementById('prod-tbl');if(!el)return;
@@ -2264,6 +2333,7 @@ function toggleCatChkEl(lbl){
   if(cb.checked){lbl.style.background=color;lbl.style.color='#fff';}
   else{lbl.style.background='transparent';lbl.style.color=inDark?'#fff':'var(--gr)';}
 }
+
 
 
 
