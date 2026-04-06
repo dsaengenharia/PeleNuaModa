@@ -325,7 +325,8 @@ footer a{color:var(--pkl);text-decoration:none;cursor:pointer;}
           <div id="pm-sizes" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         </div>
         <button id="pm-add-btn" class="bf" style="margin-top:0">+ Adicionar ao Carrinho</button>
-        <button class="bloc" style="width:100%;margin-top:10px;padding:10px" onclick="closeM('mo-prod')">Fechar</button>
+        <div id="pm-reviews" style="margin-top:16px;border-top:1px solid var(--pkp);padding-top:14px"></div>
+    <button class="bloc" style="width:100%;margin-top:10px;padding:10px" onclick="closeM('mo-prod')">Fechar</button>
       </div>
     </div>
   </div>
@@ -562,12 +563,8 @@ footer a{color:var(--pkl);text-decoration:none;cursor:pointer;}
       <div class="sarrows"><button class="sarr" onclick="prevSlide()">&#8249;</button><button class="sarr" onclick="nextSlide()">&#8250;</button></div>
       <div class="sdots" id="ss-dots"></div>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:4px">
-      <h2 class="st" style="margin-bottom:0">Nossas <em>Categorias</em></h2>
-      <button id="edit-cats-btn" class="bga" style="display:none" onclick="renderCatsEditList();openM('mo-cats')">✏️ Editar Categorias</button>
-    </div>
-    <p class="ss">Encontre a peça perfeita</p>
-    <div class="cats" id="hcats"></div>
+    <button id="edit-cats-btn" class="bga" style="display:none" onclick="renderCatsEditList();openM('mo-cats')">✏️ Editar Categorias</button>
+    <div class="cats" id="hcats" style="margin-bottom:12px"></div>
     <h2 class="st">Em <em>Destaque</em></h2><p class="ss">As peças mais amadas</p>
     <div class="pgrid" id="hgrid"></div>
   </div>
@@ -576,7 +573,13 @@ footer a{color:var(--pkl);text-decoration:none;cursor:pointer;}
 <!-- PRODUCTS -->
 <div class="page" id="page-products">
   <div class="main">
-    <h2 class="st">Nossa <em>Coleção</em></h2><p class="ss">Todas as peças disponíveis</p>
+    <h2 class="st">Nossa <em>Coleção</em></h2>
+    <div style="position:relative;margin-bottom:20px">
+      <input type="text" id="search-input" placeholder="🔍 Buscar produto..." oninput="searchProds(this.value)"
+        style="width:100%;padding:12px 18px 12px 44px;border-radius:50px;border:2px solid var(--pkp);font-family:Raleway,sans-serif;font-size:14px;background:#fff;color:var(--bk);outline:none;box-shadow:0 2px 12px rgba(232,0,106,.08)">
+      <span style="position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:18px;pointer-events:none">🔍</span>
+      <button id="search-clear" onclick="clearSearch()" style="display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);background:var(--pkp);border:none;color:var(--pk);width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">✕</button>
+    </div>
     <div class="cats" id="pcats"></div>
     <div class="pgrid" id="pgrid2"></div>
   </div>
@@ -1198,6 +1201,8 @@ function openProdModal(id,pool){
   const allEsg=p.sizes.length>0&&p.sizes.every(s=>esg.includes(s));
   if(allEsg){addBtn.textContent='Produto Esgotado';addBtn.disabled=true;addBtn.style.opacity='.5';}
   else{addBtn.textContent='+ Adicionar ao Carrinho';addBtn.disabled=false;addBtn.style.opacity='1';addBtn.onclick=()=>{addCart(p.id);closeM('mo-prod');};}
+  // Load reviews
+  loadReviews(id).then(function(){renderReviews(id);});
   openM('mo-prod');
 }
 function switchProdImg(thumb,src){document.getElementById('pm-main-img').innerHTML='<img src="'+src+'" style="width:100%;height:100%;object-fit:cover">';document.querySelectorAll('.prod-thumb').forEach(t=>t.classList.remove('active'));thumb.classList.add('active');}
@@ -1213,12 +1218,17 @@ function renderHGrid(){
 function renderH(){renderHomeCats();renderHGrid();}
 function renderP(){
   renderProductCats();
-  const g=document.getElementById('pgrid2');if(!g)return;
-  const list=catP==='all'?prods:prods.filter(p=>{
-    const pCats=Array.isArray(p.cats)?p.cats:[p.cat||''];
+  var g=document.getElementById('pgrid2');if(!g)return;
+  var base=catP==='all'?prods:prods.filter(function(p){
+    var pCats=Array.isArray(p.cats)?p.cats:[p.cat||''];
     return pCats.includes(catP);
   });
-  g.innerHTML=list.length?list.map(p=>pHTML(p,'main')).join(''):'<p style="color:var(--gr);padding:16px">Nenhum produto.</p>';
+  var list=searchTerm?base.filter(function(p){
+    return p.name.toLowerCase().includes(searchTerm)||
+           (p.desc&&p.desc.toLowerCase().includes(searchTerm))||
+           (p.cat&&p.cat.toLowerCase().includes(searchTerm));
+  }):base;
+  g.innerHTML=list.length?list.map(function(p){return pHTML(p,'main');}).join(''):'<p style="color:var(--gr);padding:16px">Nenhum produto encontrado.</p>';
 }
 function renderA(){
   // +18 area: shows only products with cat='adult' or cats includes 'adult'
@@ -1318,15 +1328,37 @@ async function addProd(){
 }
 async function delProd(id){showConfirm('Remover Produto','Tem certeza?',async()=>{await deleteProd('pnm_prods',id);showToast('🗑️ Produto removido.');});}
 async function toggleFeat(id){const p=prods.find(x=>x.id===id);if(!p)return;p.featured=!p.featured;await upsertProd('pnm_prods',p);showToast(p.featured?'⭐ Em destaque!':'Removido do destaque.');}
+function prodRow(p,pool){
+  var th=p.imgData?'<img src="'+p.imgData+'" style="width:42px;height:42px;object-fit:cover;border-radius:7px">':(p.emoji||'👙');
+  var szH=p.sizes.map(function(s){return '<span class="sz'+(p.esg&&p.esg.includes(s)?' esg':'')+'">'+ s+'</span>';}).join(' ');
+  var badge=pool==='adult'?'<span style="background:#3d0020;color:#ff4da6;padding:1px 6px;border-radius:50px;font-size:9px;font-weight:700;margin-left:4px">+18</span>':'';
+  var featBtn=pool!=='adult'?'<button class="bedit" onclick="toggleFeat('+p.id+')">'+(p.featured?'★':'☆')+'</button>':'';
+  var delFn=pool==='adult'?'delAdultProd':'delProd';
+    var editBtn='<button class="bedit" data-pid="'+p.id+'" data-pool="'+pool+'" onclick="openEditFromAttr(this)">✏️</button>';
+  var delBtn='<button class="adel" data-pid="'+p.id+'" data-delfn="'+delFn+'" onclick="delFromAttr(this)">🗑️</button>';
+  return '<tr><td>'+th+'</td><td><strong>'+p.name+'</strong>'+badge+'</td><td>'+p.cat+'</td><td>'+(p.featured&&pool!=='adult'?'⭐':'—')+'</td><td>'+szH+'</td><td><strong style="color:var(--pk)">R$ '+Number(p.price).toFixed(2).replace('.',',')+'</strong></td><td style="display:flex;gap:5px">'+editBtn+delBtn+featBtn+'</td></tr>';
+}
 function renderProdTbl(){
-  const el=document.getElementById('prod-tbl');if(!el)return;
-  if(!prods.length){el.innerHTML='<p style="color:var(--gr);text-align:center;padding:20px">Nenhum produto.</p>';return;}
-  el.innerHTML='<table class="atbl"><thead><tr><th>Foto</th><th>Nome</th><th>Cat.</th><th>Dest.</th><th>Tamanhos</th><th>Preço</th><th>Ações</th></tr></thead><tbody>'+
-    prods.map(p=>{
-      const th=p.imgData?'<img src="'+p.imgData+'" style="width:42px;height:42px;object-fit:cover;border-radius:7px">':(p.emoji||'👙');
-      const szH=p.sizes.map(s=>'<span class="sz'+(p.esg&&p.esg.includes(s)?' esg':'')+'">'+s+'</span>').join(' ');
-      return '<tr><td>'+th+'</td><td><strong>'+p.name+'</strong></td><td>'+( p.cat)+'</td><td>'+(p.featured?'⭐':'—')+'</td><td>'+szH+'</td><td><strong style="color:var(--pk)">R$ '+Number(p.price).toFixed(2).replace('.',',')+'</strong></td><td style="display:flex;gap:5px"><button class="bedit" onclick="openEdit('+p.id+',\'main\')">✏️</button><button class="adel" onclick="delProd('+p.id+')">🗑️</button><button class="bedit" onclick="toggleFeat('+p.id+')">'+(p.featured?'★':'☆')+'</button></td></tr>';
-    }).join('')+'</tbody></table>';
+  var el=document.getElementById('prod-tbl');if(!el)return;
+  var all=[].concat(prods,aProds);
+  if(!all.length){el.innerHTML='<p style="color:var(--gr);text-align:center;padding:20px">Nenhum produto.</p>';return;}
+  var rows=prods.map(function(p){return prodRow(p,'main');}).join('')
+             +aProds.map(function(p){return prodRow(p,'adult');}).join('');
+  el.innerHTML='<table class="atbl"><thead><tr><th>Foto</th><th>Nome</th><th>Cat.</th><th>Dest.</th><th>Tamanhos</th><th>Preço</th><th>Ações</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function openEditFromAttr(btn){
+  openEdit(parseInt(btn.dataset.pid), btn.dataset.pool);
+}
+function delFromAttr(btn){
+  var fn=btn.dataset.delfn;
+  var id=parseInt(btn.dataset.pid);
+  if(fn==='delAdultProd')delAdultProd(id);
+  else delProd(id);
+}
+async function delAdultProd(id){
+  showConfirm('Remover Produto +18','Tem certeza?',async function(){
+    await deleteProd('pnm_adult',id);showToast('🗑️ Produto +18 removido.');
+  });
 }
 function updStats(){
   const d=prods.filter(p=>p.featured).length;
@@ -1631,7 +1663,7 @@ function renderPedidos(){
         +itemsHtml+brindeHtml
       +'</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-        +'<a href="https://wa.me/5551982159719?text='+waMsgRaw+'" target="_blank" style="display:inline-flex;align-items:center;gap:7px;background:#25D366;color:#fff;padding:9px 18px;border-radius:50px;font-size:13px;font-weight:700;text-decoration:none">💬 WhatsApp</a>'
+        +(p.status==='entregue'||p.status==='cancelado'||p.status==='recusado'?'':'<a href="https://wa.me/5551982159719?text='+waMsgRaw+'" target="_blank" style="display:inline-flex;align-items:center;gap:7px;background:#25D366;color:#fff;padding:9px 18px;border-radius:50px;font-size:13px;font-weight:700;text-decoration:none">💬 WhatsApp</a>')
         +(p.status==='pendente'?'<button onclick="cancelarPedido('+p.id+')" style="background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:9px 18px;border-radius:50px;font-size:13px;font-weight:700;cursor:pointer;font-family:Raleway,sans-serif">❌ Cancelar</button>':'')
       +'</div>'
     +'</div>';
@@ -1800,6 +1832,88 @@ async function saveTrocas(){
   trocasTxt=document.getElementById('trocas-txt').value;
   await setCfg('trocas',trocasTxt);
   closeM('mo-trocas');renderTrocas();showToast('✅ Política atualizada!');
+}
+
+// ══ SEARCH ══
+var searchTerm='';
+function searchProds(val){
+  searchTerm=val.trim().toLowerCase();
+  var cl=document.getElementById('search-clear');
+  if(cl)cl.style.display=searchTerm?'block':'none';
+  renderP();
+}
+function clearSearch(){
+  var inp=document.getElementById('search-input');if(inp)inp.value='';
+  searchTerm='';
+  var cl=document.getElementById('search-clear');if(cl)cl.style.display='none';
+  renderP();
+}
+
+// ══ REVIEWS ══
+var allReviews={};
+async function loadReviews(prodId){
+  var key='rev_'+prodId;
+  var val=await getCfg(key);
+  if(val){try{allReviews[prodId]=JSON.parse(val);}catch(e){allReviews[prodId]=[];}}
+  else allReviews[prodId]=[];
+}
+async function submitReview(prodId){
+  if(!curUser){showToast('Faça login para avaliar!');return;}
+  var stars=document.querySelector('#review-stars .star-sel');
+  var rating=stars?parseInt(stars.dataset.v):0;
+  if(!rating){showToast('Escolha uma nota!');return;}
+  var txt=document.getElementById('review-txt').value.trim();
+  if(!allReviews[prodId])allReviews[prodId]=[];
+  // Remove previous review from this user
+  allReviews[prodId]=allReviews[prodId].filter(function(r){return r.email!==curUser.email;});
+  allReviews[prodId].unshift({email:curUser.email,nome:curUser.nome,rating:rating,txt:txt,date:new Date().toLocaleDateString('pt-BR')});
+  await setCfg('rev_'+prodId,JSON.stringify(allReviews[prodId]));
+  renderReviews(prodId);
+  showToast('✅ Avaliação enviada!');
+}
+function renderStarPicker(prodId){
+  var selected=0;
+  var html='<div id="review-stars" style="display:flex;gap:4px;margin-bottom:8px">';
+  for(var i=1;i<=5;i++){
+    html+='<span data-v="'+i+'" onclick="pickStar(this,'+prodId+')" style="font-size:28px;cursor:pointer;color:#ddd;transition:.2s" class="star-pick">★</span>';
+  }
+  html+='</div>';
+  html+='<textarea id="review-txt" placeholder="Comentário (opcional)" rows="2" style="width:100%;padding:8px 12px;border-radius:10px;border:2px solid var(--pkp);font-family:Raleway,sans-serif;font-size:13px;color:var(--bk);background:var(--pkb);outline:none;resize:none;margin-bottom:8px"></textarea>';
+  html+='<button onclick="submitReview('+prodId+')" style="background:linear-gradient(135deg,var(--pk),var(--pkd));color:#fff;border:none;padding:8px 20px;border-radius:50px;font-size:13px;font-weight:700;cursor:pointer;font-family:Raleway,sans-serif">Enviar Avaliação</button>';
+  return html;
+}
+function pickStar(el,prodId){
+  var v=parseInt(el.dataset.v);
+  document.querySelectorAll('#review-stars .star-pick').forEach(function(s,i){
+    s.style.color=i<v?'#f59e0b':'#ddd';
+    s.classList.toggle('star-sel',i===v-1);
+    s.dataset.v=String(i+1);
+  });
+}
+function renderReviews(prodId){
+  var el=document.getElementById('pm-reviews');if(!el)return;
+  var revs=allReviews[prodId]||[];
+  var avg=revs.length?Math.round(revs.reduce(function(s,r){return s+r.rating;},0)/revs.length):0;
+  var starsHtml=function(n){var h='';for(var i=1;i<=5;i++)h+='<span style="color:'+(i<=n?'#f59e0b':'#ddd')+'">★</span>';return h;};
+  var html='<div style="margin-bottom:10px"><strong style="font-size:14px">Avaliações</strong>';
+  if(revs.length)html+=' <span style="font-size:13px;color:var(--gr)">'+starsHtml(avg)+' ('+revs.length+')</span>';
+  html+='</div>';
+  if(revs.length){
+    html+=revs.slice(0,5).map(function(r){
+      return '<div style="background:var(--pkb);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+        +'<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
+        +'<strong style="font-size:13px">'+r.nome+'</strong>'
+        +'<span style="font-size:12px;color:#f59e0b">'+starsHtml(r.rating)+'</span></div>'
+        +(r.txt?'<p style="font-size:12px;color:var(--gr);margin:0">'+r.txt+'</p>':'')
+        +'<span style="font-size:10px;color:var(--gr)">'+r.date+'</span>'
+        +'</div>';
+    }).join('');
+  } else html+='<p style="font-size:13px;color:var(--gr)">Nenhuma avaliação ainda.</p>';
+  html+='<div style="margin-top:12px;border-top:1px solid var(--pkp);padding-top:12px">';
+  html+='<p style="font-size:13px;font-weight:700;margin-bottom:8px">Deixe sua avaliação</p>';
+  html+=renderStarPicker(prodId);
+  html+='</div>';
+  el.innerHTML=html;
 }
 
 // ══ INIT ══
